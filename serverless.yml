@@ -1,0 +1,256 @@
+# NOTE: update this with your service name
+service: freely
+
+# Use the serverless-webpack plugin to transpile ES6
+plugins:
+    - serverless-plugin-typescript
+    - serverless-offline
+    - serverless-dynamodb-local
+
+provider:
+    name: aws
+    runtime: nodejs12.x
+    stage: dev
+    region: ap-southeast-2
+    tracing: true # enable tracing
+    iamRoleStatements:
+        - Effect: 'Allow' # xray permissions (required)
+          Action:
+              - 'xray:PutTraceSegments'
+              - 'xray:PutTelemetryRecords'
+          Resource:
+              - '*'
+
+custom:
+  dynamodb:
+    stages:
+      - dev
+    start:
+      port: 8000
+      inMemory: true
+      heapInitial: 200m
+      heapMax: 1g
+      migrate: true
+      seed: true
+      convertEmptyValues: true
+    
+functions:
+  registerUser:
+    handler: src/controller/userController.register
+    timeout: 30
+    role: messageBoardRole
+    events:
+      - http:
+          path: user/register
+          method: post
+          cors: true
+  listUser:
+    handler: src/controller/userController.listUser
+    timeout: 30
+    role: messageBoardRole
+    events:
+      - http:
+          path: user
+          method: get
+          cors: true
+  createBoard:
+    handler: src/controller/boardController.create
+    role: messageBoardRole
+    events:
+      - http:
+          path: board/create
+          method: post
+          cors: true
+  listBoard:
+    handler: src/controller/boardController.listBoard
+    timeout: 30
+    role: messageBoardRole
+    events:
+      - http:
+          path: board
+          method: get
+          cors: true
+      - http:
+          path: board/user/{userId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                userId: true
+  postMessage:
+    handler: src/controller/messageController.createMessage
+    timeout: 30
+    role: messageBoardRole
+    events:
+      - http:
+          path: message
+          method: post
+          cors: true
+  getMessage:
+    handler: src/controller/messageController.getMessage
+    timeout: 30
+    role: messageBoardRole
+    events:
+      - http:
+          path: message
+          method: get
+          cors: true
+      - http:
+          path: message/board/{boardId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                boardId: true
+      - http:
+          path: message/user/{userId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                userId: true
+      - http:
+          path: message
+          method: get
+          cors: true
+resources:
+  Resources:
+    User:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: User
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+    Board:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: Board
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: id
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+    Message:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: Message
+        AttributeDefinitions:
+          - AttributeName: boardId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: timestamp
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: timestamp
+            KeyType: RANGE
+        LocalSecondaryIndexes:
+          - IndexName: local_message_board
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: boardId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        GlobalSecondaryIndexes:
+          - IndexName: global_message_by_board
+            KeySchema:
+              - AttributeName: boardId
+                KeyType: HASH
+              - AttributeName: timestamp
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+    messageBoardRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: messageBoardRole-${self:provider.stage}
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: messageBoardRolePolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow # note that these rights are given in the default policy and are required if you want logs out of your lambda(s)
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                  Resource:
+                    - 'Fn::Join':
+                       - ':'
+                       - - 'arn:aws:logs'
+                         - Ref: 'AWS::Region'
+                         - Ref: 'AWS::AccountId'
+                         - 'log-group:/aws/lambda/*:*:*'
+                - Effect: 'Allow'
+                  Action:
+                    - 's3:PutObject'
+                  Resource:
+                    Fn::Join:
+                      - ''
+                      - - 'arn:aws:s3:::'
+                        - 'Ref': 'ServerlessDeploymentBucket'
+                - Effect: 'Allow' # xray permissions (required)
+                  Action:
+                    - 'xray:PutTraceSegments'
+                    - 'xray:PutTelemetryRecords'
+                  Resource:
+                    - '*'
+                - Effect: Allow
+                  Action:
+                    - lambda:InvokeFunction
+                  Resource:
+                    - 'Fn::Join':
+                       - ':'
+                       - - 'arn:aws:lambda'
+                         - Ref: 'AWS::Region'
+                         - Ref: 'AWS::AccountId'
+                         - '*:*'
+                - Effect: Allow
+                  Action:
+                    - dynamodb:DescribeTable
+                    - dynamodb:Query
+                    - dynamodb:Scan
+                    - dynamodb:GetItem
+                    - dynamodb:PutItem
+                    - dynamodb:BatchWriteItem
+                    - dynamodb:UpdateItem
+                    - dynamodb:DeleteItem
+                    - dynamodb:BatchGetItem
+                    - dynamodb:ConditionCheck
+                    - dynamodb:GetRecords
+                    - dynamodb:GetShardIterator
+                    - dynamodb:DescribeStream
+                    - dynamodb:ListStreams
+                  Resource:
+                    - 'Fn::Join':
+                       - ':'
+                       - - 'arn:aws:dynamodb'
+                         - Ref: 'AWS::Region'
+                         - '*:*'

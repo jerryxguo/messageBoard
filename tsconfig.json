@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "outDir": "./dist",
+    "module": "commonjs",
+    "lib": ["es2017"],
+    "target": "es2017",
+    "declaration": false,
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noImplicitAny": false,
+    "importHelpers": true,
+    "strictNullChecks": true,
+    "suppressImplicitAnyIndexErrors": true,
+    "noUnusedLocals": true,
+    "resolveJsonModule": true
+  },
+
+  "exclude": ["node_modules", "dist", "__tests__", "jest.ts"],
+  "include": ["src/**/*", ".eslintrc.js", "jest.config.js", "__tests__/**/*"]
+}
